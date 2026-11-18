@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- ================================================================== -->
+    <!--  ParcelFlow – Parent POM                                            -->
+    <!--  Auteur : Équipe ParcelFlow (Wiem, Yessine, Malek, Erij)           -->
+    <!--  Sprint : 1 – Fondations & REST                                     -->
+    <!-- ================================================================== -->
+
+    <groupId>com.parcelflow</groupId>
+    <artifactId>parcelflow-parent</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>ParcelFlow :: Parent</name>
+    <description>Système de suivi de livraison de colis – Architecture Microservices SOA 2026</description>
+
+    <!-- Modules déclarés – chaque sous-dossier est un microservice autonome -->
+    <modules>
+        <module>api-gateway</module>
+        <module>order-service</module>
+        <module>carrier-service</module>
+        <module>tracking-service</module>
+    </modules>
+
+    <!-- Héritage de Spring Boot BOM pour gérer les versions transitivement -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
+
+    <!-- ================================================================== -->
+    <!--  Propriétés globales partagées par tous les modules                 -->
+    <!-- ================================================================== -->
+    <properties>
+        <java.version>17</java.version>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Versions des bibliothèques clés centralisées ici -->
+        <spring-cloud.version>2023.0.3</spring-cloud.version>
+        <grpc.version>1.65.1</grpc.version>
+        <protobuf.version>3.25.3</protobuf.version>
+        <grpc-spring-boot.version>3.1.0.RELEASE</grpc-spring-boot.version>
+        <springdoc.version>2.6.0</springdoc.version>
+        <resilience4j.version>2.2.0</resilience4j.version>
+        <mapstruct.version>1.5.5.Final</mapstruct.version>
+        <testcontainers.version>1.20.1</testcontainers.version>
+    </properties>
+
+    <!-- ================================================================== -->
+    <!--  Gestion des dépendances (DependencyManagement = versions globales) -->
+    <!-- ================================================================== -->
+    <dependencyManagement>
+        <dependencies>
+            <!-- Spring Cloud BOM – pour Gateway, Config, etc. -->
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Testcontainers BOM – pour les tests d'intégration (Sprint 3) -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- gRPC – communication entre services (Erij / Tracking) -->
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-bom</artifactId>
+                <version>${grpc.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <!-- ================================================================== -->
+    <!--  Dépendances communes à TOUS les modules                            -->
+    <!-- ================================================================== -->
+    <dependencies>
+        <!-- Lombok : génération du boilerplate (getters, builders, logs) -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Tests JUnit 5 + Mockito -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <!-- ================================================================== -->
+    <!--  Plugins de build partagés                                          -->
+    <!-- ================================================================== -->
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <configuration>
+                        <excludes>
+                            <exclude>
+                                <groupId>org.projectlombok</groupId>
+                                <artifactId>lombok</artifactId>
+                            </exclude>
+                        </excludes>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+</project>

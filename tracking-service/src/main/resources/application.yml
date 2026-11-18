@@ -1,0 +1,44 @@
+# =============================================================
+#  Tracking Service – Configuration Spring Boot
+#  Auteur : Erij
+# =============================================================
+server:
+  port: ${TRACKING_SERVICE_PORT:8083}
+
+spring:
+  application:
+    name: tracking-service
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5435/trackingdb}
+    username: ${SPRING_DATASOURCE_USERNAME:tracking_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:tracking_pass_dev}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+# Configuration du serveur gRPC (grpc-spring-boot-starter)
+grpc:
+  server:
+    port: ${TRACKING_GRPC_PORT:9090}
+    # Désactiver TLS en développement (activer en production Sprint 3)
+    security:
+      enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+logging:
+  level:
+    com.parcelflow: DEBUG
+    io.grpc: INFO
+    net.devh.boot.grpc: DEBUG

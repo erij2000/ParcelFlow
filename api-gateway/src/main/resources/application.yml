@@ -1,0 +1,26 @@
+# =============================================================
+#  API Gateway – Configuration Spring
+#  Auteur : Wiem
+# =============================================================
+server:
+  port: ${GATEWAY_PORT:8080}
+
+spring:
+  application:
+    name: api-gateway
+  # Les routes sont définies dans GatewayRoutesConfig.java (code Java)
+  # On peut aussi les définir ici en YAML pour la lisibilité
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway,metrics
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
+    com.parcelflow: INFO

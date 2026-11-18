@@ -1,0 +1,104 @@
+// =============================================================
+//  tracking.proto – Contrat gRPC du Tracking Service
+//
+//  Auteur  : Erij
+//  Principe: Le fichier .proto est le contrat gRPC, équivalent du WSDL pour SOAP.
+//            Il définit les services, méthodes et messages en Protobuf IDL.
+//            Le compilateur protoc génère les classes Java à partir de ce fichier.
+//
+//  Compilation : mvn compile (via protobuf-maven-plugin dans pom.xml)
+//  Résultat    : classes dans target/generated-sources/protobuf/
+// =============================================================
+
+syntax = "proto3";
+
+// Package Java des classes générées
+option java_package = "com.parcelflow.tracking.generated";
+option java_outer_classname = "TrackingProto";
+// Génère un fichier Java par message/service (meilleure organisation)
+option java_multiple_files = true;
+
+package tracking;
+
+// =============================================================
+//  MESSAGES – Définition des types de données échangés
+// =============================================================
+
+// Position GPS d'un colis à un instant donné
+message TrackingPosition {
+  string parcel_id    = 1;  // Identifiant du colis
+  double latitude     = 2;  // Latitude GPS (-90 à 90)
+  double longitude    = 3;  // Longitude GPS (-180 à 180)
+  string city         = 4;  // Ville actuelle (lisible)
+  string status       = 5;  // Statut (IN_TRANSIT, DELIVERED, etc.)
+  int64  timestamp    = 6;  // Epoch Unix en millisecondes
+  string description  = 7;  // Description de l'événement
+}
+
+// Requête pour suivre un colis (par ID)
+message TrackParcelRequest {
+  string parcel_id = 1;
+}
+
+// Requête pour enregistrer une nouvelle position
+message RecordPositionRequest {
+  string parcel_id   = 1;
+  double latitude    = 2;
+  double longitude   = 3;
+  string city        = 4;
+  string status      = 5;
+  string description = 6;
+}
+
+// Réponse d'enregistrement de position
+message RecordPositionResponse {
+  bool   success   = 1;
+  string message   = 2;
+  string event_id  = 3;
+}
+
+// Requête pour l'historique complet d'un colis
+message GetHistoryRequest {
+  string parcel_id = 1;
+  int32  limit     = 2;  // Nombre max de positions (0 = toutes)
+}
+
+// Réponse contenant l'historique complet
+message GetHistoryResponse {
+  string parcel_id              = 1;
+  repeated TrackingPosition positions = 2;  // Liste des positions
+  int32  total_count            = 3;
+}
+
+// =============================================================
+//  SERVICE – Définition des opérations gRPC
+// =============================================================
+
+service TrackingService {
+
+  // ── Appel UNAIRE ──────────────────────────────────────────
+  // Client envoie une requête, reçoit une réponse unique.
+  // Équivalent d'un appel REST GET classique.
+
+  // Récupère la dernière position connue d'un colis
+  rpc GetLastPosition(TrackParcelRequest) returns (TrackingPosition);
+
+  // Récupère l'historique complet des positions
+  rpc GetHistory(GetHistoryRequest) returns (GetHistoryResponse);
+
+  // Enregistre une nouvelle position GPS
+  rpc RecordPosition(RecordPositionRequest) returns (RecordPositionResponse);
+
+  // ── STREAMING SERVEUR ─────────────────────────────────────
+  // Client envoie une requête, reçoit un flux continu de réponses.
+  // Idéal pour le tracking en temps réel (positions GPS live).
+  // Le mot-clé "stream" avant returns indique le streaming.
+
+  rpc StreamPositions(TrackParcelRequest) returns (stream TrackingPosition);
+
+  // ── STREAMING BIDIRECTIONNEL (Bonus Sprint 3) ─────────────
+  // Client et serveur s'envoient des flux simultanément.
+  // Utile pour une interface de suivi interactive en temps réel.
+
+  // rpc LiveTracking(stream TrackParcelRequest) returns (stream TrackingPosition);
+}

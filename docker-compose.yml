@@ -1,0 +1,175 @@
+version: "3.9"
+
+# =============================================================
+#  ParcelFlow – Docker Compose
+#  Auteur  : Wiem (Infrastructure & DevOps)
+#  Commande: docker compose up --build
+# =============================================================
+
+# Réseau interne partagé par tous les services
+networks:
+  parcelflow-net:
+    driver: bridge
+
+# Volumes nommés pour la persistance des données PostgreSQL
+volumes:
+  order-db-data:
+  carrier-db-data:
+  tracking-db-data:
+
+services:
+
+  # ============================================================
+  #  BASES DE DONNÉES – Une BDD isolée par microservice
+  #  → Principe de Database-per-Service (isolation totale)
+  # ============================================================
+
+  order-db:
+    image: postgres:16-alpine
+    container_name: parcelflow-order-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${ORDER_DB_NAME}
+      POSTGRES_USER: ${ORDER_DB_USER}
+      POSTGRES_PASSWORD: ${ORDER_DB_PASSWORD}
+    ports:
+      - "5433:5432"      # Exposé sur 5433 pour éviter les conflits locaux
+    volumes:
+      - order-db-data:/var/lib/postgresql/data
+    networks:
+      - parcelflow-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ORDER_DB_USER} -d ${ORDER_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  carrier-db:
+    image: postgres:16-alpine
+    container_name: parcelflow-carrier-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${CARRIER_DB_NAME}
+      POSTGRES_USER: ${CARRIER_DB_USER}
+      POSTGRES_PASSWORD: ${CARRIER_DB_PASSWORD}
+    ports:
+      - "5434:5432"
+    volumes:
+      - carrier-db-data:/var/lib/postgresql/data
+    networks:
+      - parcelflow-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CARRIER_DB_USER} -d ${CARRIER_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  tracking-db:
+    image: postgres:16-alpine
+    container_name: parcelflow-tracking-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${TRACKING_DB_NAME}
+      POSTGRES_USER: ${TRACKING_DB_USER}
+      POSTGRES_PASSWORD: ${TRACKING_DB_PASSWORD}
+    ports:
+      - "5435:5432"
+    volumes:
+      - tracking-db-data:/var/lib/postgresql/data
+    networks:
+      - parcelflow-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TRACKING_DB_USER} -d ${TRACKING_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  #  MICROSERVICES APPLICATIFS
+  # ============================================================
+
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile
+    container_name: parcelflow-order-service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${ORDER_DB_HOST}:${ORDER_DB_PORT}/${ORDER_DB_NAME}
+      SPRING_DATASOURCE_USERNAME: ${ORDER_DB_USER}
+      SPRING_DATASOURCE_PASSWORD: ${ORDER_DB_PASSWORD}
+      SERVER_PORT: ${ORDER_SERVICE_PORT}
+    ports:
+      - "${ORDER_SERVICE_PORT}:${ORDER_SERVICE_PORT}"
+    depends_on:
+      order-db:
+        condition: service_healthy
+    networks:
+      - parcelflow-net
+
+  carrier-service:
+    build:
+      context: ./carrier-service
+      dockerfile: Dockerfile
+    container_name: parcelflow-carrier-service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${CARRIER_DB_HOST}:${CARRIER_DB_PORT}/${CARRIER_DB_NAME}
+      SPRING_DATASOURCE_USERNAME: ${CARRIER_DB_USER}
+      SPRING_DATASOURCE_PASSWORD: ${CARRIER_DB_PASSWORD}
+      SERVER_PORT: ${CARRIER_SERVICE_PORT}
+    ports:
+      - "${CARRIER_SERVICE_PORT}:${CARRIER_SERVICE_PORT}"
+    depends_on:
+      carrier-db:
+        condition: service_healthy
+    networks:
+      - parcelflow-net
+
+  tracking-service:
+    build:
+      context: ./tracking-service
+      dockerfile: Dockerfile
+    container_name: parcelflow-tracking-service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${TRACKING_DB_HOST}:${TRACKING_DB_PORT}/${TRACKING_DB_NAME}
+      SPRING_DATASOURCE_USERNAME: ${TRACKING_DB_USER}
+      SPRING_DATASOURCE_PASSWORD: ${TRACKING_DB_PASSWORD}
+      SERVER_PORT: ${TRACKING_SERVICE_PORT}
+      GRPC_SERVER_PORT: ${TRACKING_GRPC_PORT}
+    ports:
+      - "${TRACKING_SERVICE_PORT}:${TRACKING_SERVICE_PORT}"
+      - "${TRACKING_GRPC_PORT}:${TRACKING_GRPC_PORT}"
+    depends_on:
+      tracking-db:
+        condition: service_healthy
+    networks:
+      - parcelflow-net
+
+  # ============================================================
+  #  API GATEWAY – Point d'entrée unique (Wiem)
+  # ============================================================
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: parcelflow-api-gateway
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVER_PORT: ${GATEWAY_PORT}
+      ORDER_SERVICE_URL: http://order-service:${ORDER_SERVICE_PORT}
+      CARRIER_SERVICE_URL: http://carrier-service:${CARRIER_SERVICE_PORT}
+      TRACKING_SERVICE_URL: http://tracking-service:${TRACKING_SERVICE_PORT}
+    ports:
+      - "${GATEWAY_PORT}:${GATEWAY_PORT}"
+    depends_on:
+      - order-service
+      - carrier-service
+      - tracking-service
+    networks:
+      - parcelflow-net

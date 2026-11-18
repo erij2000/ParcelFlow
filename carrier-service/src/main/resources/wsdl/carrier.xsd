@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  carrier.xsd – Schéma XML du Carrier Service (Contract-First SOAP)
+  
+  Auteur  : Malek
+  Principe: On définit d'abord le contrat (XSD/WSDL), puis on génère
+            le code Java. C'est l'opposé de "Code-First".
+            
+  Ce XSD définit :
+  - GetPriceRequest / GetPriceResponse  : calcul du tarif de transport
+  - BookCarrierRequest / BookCarrierResponse : réservation d'un transporteur
+  - CarrierServiceFault                 : SOAP Faults standardisées
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:tns="http://parcelflow.com/carrier"
+           targetNamespace="http://parcelflow.com/carrier"
+           elementFormDefault="qualified">
+
+    <!-- ================================================================ -->
+    <!--  TYPES PARTAGÉS                                                   -->
+    <!-- ================================================================ -->
+
+    <!-- Énumération des types de transporteurs disponibles -->
+    <xs:simpleType name="CarrierType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="STANDARD"/>   <!-- 3-5 jours -->
+            <xs:enumeration value="EXPRESS"/>    <!-- 24h -->
+            <xs:enumeration value="OVERNIGHT"/>  <!-- Nuit même -->
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- Type complexe représentant un transporteur -->
+    <xs:complexType name="CarrierInfo">
+        <xs:sequence>
+            <xs:element name="carrierId"   type="xs:string"/>
+            <xs:element name="carrierName" type="xs:string"/>
+            <xs:element name="carrierType" type="tns:CarrierType"/>
+            <xs:element name="available"   type="xs:boolean"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <!-- ================================================================ -->
+    <!--  OPÉRATION 1 : GetPrice – Calcul de tarif                        -->
+    <!-- ================================================================ -->
+
+    <xs:element name="GetPriceRequest">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="originCity"      type="xs:string"/>
+                <xs:element name="destinationCity" type="xs:string"/>
+                <!-- Poids en kg, minimum 0.001 -->
+                <xs:element name="weightKg">
+                    <xs:simpleType>
+                        <xs:restriction base="xs:decimal">
+                            <xs:minExclusive value="0"/>
+                            <xs:maxInclusive value="1000"/>
+                        </xs:restriction>
+                    </xs:simpleType>
+                </xs:element>
+                <xs:element name="carrierType" type="tns:CarrierType"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="GetPriceResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="price"        type="xs:decimal"/>
+                <xs:element name="currency"     type="xs:string" fixed="EUR"/>
+                <xs:element name="estimatedDays" type="xs:int"/>
+                <xs:element name="carrierInfo"  type="tns:CarrierInfo"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- ================================================================ -->
+    <!--  OPÉRATION 2 : BookCarrier – Réservation d'un transporteur       -->
+    <!-- ================================================================ -->
+
+    <xs:element name="BookCarrierRequest">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="orderId"         type="xs:string"/>
+                <xs:element name="originCity"      type="xs:string"/>
+                <xs:element name="destinationCity" type="xs:string"/>
+                <xs:element name="weightKg"        type="xs:decimal"/>
+                <xs:element name="carrierType"     type="tns:CarrierType"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:element name="BookCarrierResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="bookingId"       type="xs:string"/>
+                <xs:element name="carrierId"       type="xs:string"/>
+                <xs:element name="carrierName"     type="xs:string"/>
+                <xs:element name="totalPrice"      type="xs:decimal"/>
+                <xs:element name="estimatedPickup" type="xs:dateTime"/>
+                <xs:element name="status"          type="xs:string"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <!-- ================================================================ -->
+    <!--  SOAP FAULT – Erreurs standardisées                              -->
+    <!-- ================================================================ -->
+
+    <xs:element name="CarrierServiceFault">
+        <xs:complexType>
+            <xs:sequence>
+                <!-- Code d'erreur métier (ex: CARRIER_UNAVAILABLE, WEIGHT_EXCEEDED) -->
+                <xs:element name="faultCode"    type="xs:string"/>
+                <xs:element name="faultMessage" type="xs:string"/>
+                <xs:element name="details"      type="xs:string" minOccurs="0"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+</xs:schema>

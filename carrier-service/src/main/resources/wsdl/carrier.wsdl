@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  carrier.wsdl – Contrat SOAP du Carrier Service
+  
+  Auteur  : Malek
+  Principe: Contract-First → ce WSDL définit l'interface AVANT le code Java.
+            Le WSDL est le "contrat" entre le service et ses consommateurs.
+            
+  Ce WSDL expose 2 opérations :
+  1. GetPrice   : calculer le tarif d'un envoi
+  2. BookCarrier: réserver un transporteur pour une commande
+-->
+<wsdl:definitions xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/"
+                  xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+                  xmlns:tns="http://parcelflow.com/carrier"
+                  xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                  targetNamespace="http://parcelflow.com/carrier"
+                  name="CarrierService">
+
+    <!-- Import du schéma XSD qui définit tous les types -->
+    <wsdl:types>
+        <xs:schema>
+            <xs:import namespace="http://parcelflow.com/carrier"
+                       schemaLocation="carrier.xsd"/>
+        </xs:schema>
+    </wsdl:types>
+
+    <!-- ================================================================ -->
+    <!--  MESSAGES – Enveloppes d'entrée/sortie pour chaque opération     -->
+    <!-- ================================================================ -->
+
+    <wsdl:message name="GetPriceRequest">
+        <wsdl:part name="parameters" element="tns:GetPriceRequest"/>
+    </wsdl:message>
+    <wsdl:message name="GetPriceResponse">
+        <wsdl:part name="parameters" element="tns:GetPriceResponse"/>
+    </wsdl:message>
+
+    <wsdl:message name="BookCarrierRequest">
+        <wsdl:part name="parameters" element="tns:BookCarrierRequest"/>
+    </wsdl:message>
+    <wsdl:message name="BookCarrierResponse">
+        <wsdl:part name="parameters" element="tns:BookCarrierResponse"/>
+    </wsdl:message>
+
+    <!-- Message d'erreur SOAP Fault -->
+    <wsdl:message name="CarrierServiceFault">
+        <wsdl:part name="fault" element="tns:CarrierServiceFault"/>
+    </wsdl:message>
+
+    <!-- ================================================================ -->
+    <!--  PORT TYPE – Interface abstraite du service (opérations)         -->
+    <!-- ================================================================ -->
+
+    <wsdl:portType name="CarrierServicePortType">
+
+        <wsdl:operation name="GetPrice">
+            <wsdl:documentation>Calcule le tarif de transport pour un colis.</wsdl:documentation>
+            <wsdl:input  message="tns:GetPriceRequest"/>
+            <wsdl:output message="tns:GetPriceResponse"/>
+            <wsdl:fault  name="CarrierServiceFault" message="tns:CarrierServiceFault"/>
+        </wsdl:operation>
+
+        <wsdl:operation name="BookCarrier">
+            <wsdl:documentation>Réserve un transporteur pour une commande donnée.</wsdl:documentation>
+            <wsdl:input  message="tns:BookCarrierRequest"/>
+            <wsdl:output message="tns:BookCarrierResponse"/>
+            <wsdl:fault  name="CarrierServiceFault" message="tns:CarrierServiceFault"/>
+        </wsdl:operation>
+
+    </wsdl:portType>
+
+    <!-- ================================================================ -->
+    <!--  BINDING – Liaison au protocole SOAP 1.1                        -->
+    <!-- ================================================================ -->
+
+    <wsdl:binding name="CarrierServiceSoapBinding" type="tns:CarrierServicePortType">
+        <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+
+        <wsdl:operation name="GetPrice">
+            <soap:operation soapAction="http://parcelflow.com/carrier/GetPrice"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+            <wsdl:fault name="CarrierServiceFault">
+                <soap:fault name="CarrierServiceFault" use="literal"/>
+            </wsdl:fault>
+        </wsdl:operation>
+
+        <wsdl:operation name="BookCarrier">
+            <soap:operation soapAction="http://parcelflow.com/carrier/BookCarrier"/>
+            <wsdl:input>
+                <soap:body use="literal"/>
+            </wsdl:input>
+            <wsdl:output>
+                <soap:body use="literal"/>
+            </wsdl:output>
+            <wsdl:fault name="CarrierServiceFault">
+                <soap:fault name="CarrierServiceFault" use="literal"/>
+            </wsdl:fault>
+        </wsdl:operation>
+
+    </wsdl:binding>
+
+    <!-- ================================================================ -->
+    <!--  SERVICE – Adresse physique de déploiement                       -->
+    <!-- ================================================================ -->
+
+    <wsdl:service name="CarrierService">
+        <wsdl:port name="CarrierServicePort" binding="tns:CarrierServiceSoapBinding">
+            <soap:address location="http://localhost:8082/ws"/>
+        </wsdl:port>
+    </wsdl:service>
+
+</wsdl:definitions>

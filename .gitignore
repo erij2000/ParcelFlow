@@ -1,0 +1,32 @@
+# =============================================================
+#  ParcelFlow – .gitignore
+# =============================================================
+
+# Secrets – JAMAIS committer !
+.env
+*.env.local
+
+# Java / Maven
+target/
+*.class
+*.jar
+*.war
+*.ear
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+docker/volumes/
+
+# Logs
+*.log
+logs/
