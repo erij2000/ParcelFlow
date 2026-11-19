@@ -1,0 +1,164 @@
+# ==============================================================================
+#  ParcelFlow - Carrier Service SOAP Specification
+#  Responsable : Malek Beltaief
+#  Protocole    : SOAP 1.1 / WSDL 1.1 / XSD (Contract-First)
+# ==============================================================================
+
+service:
+  name: CarrierService
+  version: "1.0.0-SNAPSHOT"
+  style: Document/Literal
+  targetNamespace: "http://parcelflow.com/carrier"
+  transport: "http://schemas.xmlsoap.org/soap/http"
+
+endpoints:
+  wsdlLocation: "http://localhost:8082/ws/carrier.wsdl"
+  soapAddress: "http://localhost:8082/ws"
+  gatewayPath: "http://localhost:8080/api/carrier/ws"
+
+schemaFiles:
+  xsd: "src/main/resources/wsdl/carrier.xsd"
+  wsdl: "src/main/resources/wsdl/carrier.wsdl"
+
+types:
+  CarrierType:
+    type: string
+    description: Type de service de livraison proposé par les transporteurs partenaires
+    enum:
+      - STANDARD: "Livraison sous 3 à 5 jours ouvrés"
+      - EXPRESS: "Livraison garantie sous 24h"
+      - OVERNIGHT: "Livraison le jour même ou nuit suivante"
+
+  CarrierInfo:
+    type: complex
+    fields:
+      carrierId:
+        type: string
+        example: "CARRIER-001"
+      carrierName:
+        type: string
+        example: "ParcelFlow Logistics"
+      carrierType:
+        type: CarrierType
+        example: "EXPRESS"
+      available:
+        type: boolean
+        example: true
+
+operations:
+  GetPrice:
+    summary: Calculer le tarif d'expédition d'un colis
+    description: |
+      Opération SOAP synchrone permettant d'obtenir une cotation tarifaire précise 
+      selon l'origine, la destination, le poids et le type de service choisi.
+    soapAction: "http://parcelflow.com/carrier/GetPrice"
+    request:
+      element: "tns:GetPriceRequest"
+      fields:
+        originCity:
+          type: string
+          required: true
+          example: "Tunis"
+        destinationCity:
+          type: string
+          required: true
+          example: "Sfax"
+        weightKg:
+          type: decimal
+          required: true
+          minimum: 0.001
+          maximum: 1000
+          example: 2.5
+        carrierType:
+          type: CarrierType
+          required: true
+          example: "EXPRESS"
+    response:
+      element: "tns:GetPriceResponse"
+      fields:
+        price:
+          type: decimal
+          example: 15.75
+        currency:
+          type: string
+          fixed: "EUR"
+        estimatedDays:
+          type: int
+          example: 1
+        carrierInfo:
+          type: CarrierInfo
+    faults:
+      - CarrierServiceFault
+
+  BookCarrier:
+    summary: Réserver un transporteur pour une commande validée
+    description: |
+      Bloque la capacité de transport chez le partenaire logistique et retourne 
+      un numéro de réservation officiel (bookingId) et le statut de confirmation.
+    soapAction: "http://parcelflow.com/carrier/BookCarrier"
+    request:
+      element: "tns:BookCarrierRequest"
+      fields:
+        orderId:
+          type: string
+          required: true
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        originCity:
+          type: string
+          required: true
+          example: "Tunis"
+        destinationCity:
+          type: string
+          required: true
+          example: "Sfax"
+        weightKg:
+          type: decimal
+          required: true
+          example: 2.5
+        carrierType:
+          type: CarrierType
+          required: true
+          example: "EXPRESS"
+    response:
+      element: "tns:BookCarrierResponse"
+      fields:
+        bookingId:
+          type: string
+          example: "BOOK-849302-PF"
+        carrierId:
+          type: string
+          example: "CARRIER-001"
+        carrierName:
+          type: string
+          example: "ParcelFlow Express"
+        totalPrice:
+          type: decimal
+          example: 15.75
+        estimatedPickup:
+          type: dateTime
+        status:
+          type: string
+          example: "CONFIRMED"
+    faults:
+      - CarrierServiceFault
+
+faultHandling:
+  CarrierServiceFault:
+    element: "tns:CarrierServiceFault"
+    httpStatusCode: 500
+    soapFaultCode: "SOAP-ENV:Server"
+    structure:
+      faultCode:
+        type: string
+        description: Code d'erreur métier standardisé
+        values:
+          - INVALID_WEIGHT: "Le poids fourni est négatif ou égal à zéro"
+          - MISSING_ORIGIN: "La ville de départ n'est pas renseignée"
+          - MISSING_ORDER_ID: "L'identifiant de commande est absent"
+          - CARRIER_UNAVAILABLE: "Aucun transporteur disponible pour cet itinéraire"
+      faultMessage:
+        type: string
+        description: Description explicite de l'erreur pour le client
+      details:
+        type: string
+        optional: true
