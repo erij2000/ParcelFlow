@@ -1,0 +1,343 @@
+openapi: 3.0.3
+info:
+  title: ParcelFlow - Order Service API
+  description: |
+    Spécification officielle et contrat d'interface OpenAPI 3.0 du microservice **Order Service**.
+    Ce microservice est responsable de la gestion du cycle de vie des commandes de livraison de colis (création, consultation, modification de statut, annulation).
+    Il agit comme l'orchestrateur central de l'architecture SOA ParcelFlow.
+  version: 1.0.0-SNAPSHOT
+  contact:
+    name: Yessine Elfaires & Équipe ParcelFlow
+    email: parcelflow@university.tn
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8081
+    description: Accès direct Order Service (Développement local)
+  - url: http://localhost:8080/api
+    description: Accès via API Gateway (Environnement standard)
+
+tags:
+  - name: Orders
+    description: Gestion des commandes de colis et suivi du cycle de vie
+
+paths:
+  /orders:
+    post:
+      tags:
+        - Orders
+      summary: Créer une nouvelle commande de livraison
+      description: |
+        Enregistre une nouvelle commande de colis dans le système.
+        Génère automatiquement une référence de suivi publique unique (ex: `PF-2026-00001`).
+        Le statut initial est toujours fixé à `PENDING`.
+      operationId: createOrder
+      requestBody:
+        required: true
+        description: Données requises pour initialiser la commande
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+            example:
+              senderName: Ahmed Ben Ali
+              senderAddress: 12 Rue de la Paix
+              senderCity: Tunis
+              recipientName: Sara Mansour
+              recipientAddress: 5 Avenue Habib Bourguiba
+              recipientCity: Sfax
+              weightKg: 2.5
+              declaredValue: 150.00
+      responses:
+        '201':
+          description: Commande créée avec succès
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Données de requête invalides (validation Bean échouée)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '500':
+          description: Erreur interne du serveur
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+    get:
+      tags:
+        - Orders
+      summary: Lister toutes les commandes
+      description: Retourne la liste complète de toutes les commandes enregistrées en base de données.
+      operationId: getAllOrders
+      responses:
+        '200':
+          description: Liste des commandes récupérée
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrderResponse'
+
+  /orders/{id}:
+    get:
+      tags:
+        - Orders
+      summary: Récupérer une commande par son identifiant unique UUID
+      operationId: getOrderById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identifiant UUID de la commande
+          schema:
+            type: string
+            format: uuid
+            example: 550e8400-e29b-41d4-a716-446655440000
+      responses:
+        '200':
+          description: Commande trouvée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '404':
+          description: Commande non trouvée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+    delete:
+      tags:
+        - Orders
+      summary: Supprimer une commande
+      operationId: deleteOrder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identifiant UUID de la commande à supprimer
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Commande supprimée avec succès (No Content)
+        '404':
+          description: Commande introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /orders/tracking/{ref}:
+    get:
+      tags:
+        - Orders
+      summary: Suivre un colis par sa référence publique
+      description: Endpoint public permettant aux clients et destinataires de suivre l'état d'un colis.
+      operationId: getOrderByTrackingReference
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          description: Référence de suivi publique générée
+          schema:
+            type: string
+            example: PF-2026-00001
+      responses:
+        '200':
+          description: Données de la commande correspondante
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '404':
+          description: Référence de suivi introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /orders/{id}/status:
+    patch:
+      tags:
+        - Orders
+      summary: Mettre à jour le statut d'une commande
+      description: |
+        Modification partielle (PATCH) du cycle de vie de la commande.
+        Utilisé par les microservices partenaires (Carrier Service, Tracking Service).
+      operationId: updateOrderStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identifiant UUID de la commande
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: true
+          description: Nouveau statut à appliquer
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+      responses:
+        '200':
+          description: Statut mis à jour avec succès
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '404':
+          description: Commande non trouvée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+components:
+  schemas:
+    OrderStatus:
+      type: string
+      enum:
+        - PENDING
+        - CONFIRMED
+        - ASSIGNED_TO_CARRIER
+        - IN_TRANSIT
+        - DELIVERED
+        - FAILED
+        - CANCELLED
+      description: |
+        Statut du cycle de vie d'une commande :
+        * `PENDING` : En attente de validation tarifaire
+        * `CONFIRMED` : Validée par le client
+        * `ASSIGNED_TO_CARRIER` : Transporteur réservé (via SOAP)
+        * `IN_TRANSIT` : Colis en cours de livraison
+        * `DELIVERED` : Colis livré au destinataire
+        * `FAILED` : Échec de livraison
+        * `CANCELLED` : Annulée par l'expéditeur
+
+    CreateOrderRequest:
+      type: object
+      required:
+        - senderName
+        - senderAddress
+        - senderCity
+        - recipientName
+        - recipientAddress
+        - recipientCity
+        - weightKg
+      properties:
+        senderName:
+          type: string
+          maxLength: 100
+          description: Nom complet de l'expéditeur
+          example: Ahmed Ben Ali
+        senderAddress:
+          type: string
+          description: Adresse postale de départ
+          example: 12 Rue de la Paix
+        senderCity:
+          type: string
+          description: Ville de l'expéditeur
+          example: Tunis
+        recipientName:
+          type: string
+          maxLength: 100
+          description: Nom complet du destinataire
+          example: Sara Mansour
+        recipientAddress:
+          type: string
+          description: Adresse postale de destination
+          example: 5 Avenue Habib Bourguiba
+        recipientCity:
+          type: string
+          description: Ville de destination
+          example: Sfax
+        weightKg:
+          type: number
+          format: double
+          minimum: 0.001
+          maximum: 1000
+          description: Poids du colis en kilogrammes (strictement positif)
+          example: 2.5
+        declaredValue:
+          type: number
+          format: double
+          minimum: 0
+          description: Valeur marchande déclarée en EUR
+          example: 150.00
+
+    OrderResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: UUID unique généré
+          example: 550e8400-e29b-41d4-a716-446655440000
+        trackingReference:
+          type: string
+          description: Référence de suivi publique formatée
+          example: PF-2026-00001
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        senderName:
+          type: string
+          example: Ahmed Ben Ali
+        senderCity:
+          type: string
+          example: Tunis
+        recipientName:
+          type: string
+          example: Sara Mansour
+        recipientCity:
+          type: string
+          example: Sfax
+        weightKg:
+          type: number
+          example: 2.5
+        carrierId:
+          type: string
+          nullable: true
+          description: Identifiant du transporteur assigné via SOAP
+          example: CARRIER-001
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProblemDetail:
+      type: object
+      description: Format standardisé d'erreur RFC 7807 (Spring Boot 3)
+      properties:
+        type:
+          type: string
+          format: uri
+          example: about:blank
+        title:
+          type: string
+          description: Résumé court lisible de l'erreur
+          example: Commande introuvable
+        status:
+          type: integer
+          description: Code statut HTTP
+          example: 404
+        detail:
+          type: string
+          description: Explication détaillée de l'erreur
+          example: "Commande non trouvée : non-existent-id"
+        timestamp:
+          type: string
+          format: date-time

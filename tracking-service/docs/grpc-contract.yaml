@@ -1,0 +1,158 @@
+# ==============================================================================
+#  ParcelFlow - Tracking Service gRPC Specification
+#  Responsable : Erij Kacem
+#  Protocole    : gRPC sur HTTP/2 (Protocol Buffers v3)
+# ==============================================================================
+
+service:
+  name: TrackingService
+  package: tracking
+  version: "1.0.0-SNAPSHOT"
+  syntax: proto3
+  protoFile: "src/main/proto/tracking.proto"
+  generatedJavaPackage: "com.parcelflow.tracking.generated"
+
+ports:
+  grpc: 9090
+  httpManagement: 8083
+
+types:
+  TrackingPosition:
+    description: Position géographique horodatée d'un colis
+    fields:
+      - tag: 1
+        name: parcel_id
+        type: string
+        example: "PF-2026-00001"
+      - tag: 2
+        name: latitude
+        type: double
+        example: 36.8065
+      - tag: 3
+        name: longitude
+        type: double
+        example: 10.1815
+      - tag: 4
+        name: city
+        type: string
+        example: "Tunis"
+      - tag: 5
+        name: status
+        type: string
+        example: "IN_TRANSIT"
+      - tag: 6
+        name: timestamp
+        type: int64
+        description: Timestamp Unix en millisecondes
+        example: 1732014000000
+      - tag: 7
+        name: description
+        type: string
+        example: "Colis scanné au centre de tri régional"
+
+  TrackParcelRequest:
+    description: Requête de recherche par identifiant de colis
+    fields:
+      - tag: 1
+        name: parcel_id
+        type: string
+        required: true
+
+  RecordPositionRequest:
+    description: Payload émis par les capteurs IoT / livreurs pour enregistrer une position
+    fields:
+      - tag: 1
+        name: parcel_id
+        type: string
+      - tag: 2
+        name: latitude
+        type: double
+      - tag: 3
+        name: longitude
+        type: double
+      - tag: 4
+        name: city
+        type: string
+      - tag: 5
+        name: status
+        type: string
+      - tag: 6
+        name: description
+        type: string
+
+  RecordPositionResponse:
+    fields:
+      - tag: 1
+        name: success
+        type: bool
+      - tag: 2
+        name: message
+        type: string
+      - tag: 3
+        name: event_id
+        type: string
+
+  GetHistoryRequest:
+    fields:
+      - tag: 1
+        name: parcel_id
+        type: string
+      - tag: 2
+        name: limit
+        type: int32
+        description: Nombre maximum de positions demandées (0 = toutes)
+
+  GetHistoryResponse:
+    fields:
+      - tag: 1
+        name: parcel_id
+        type: string
+      - tag: 2
+        name: positions
+        type: "repeated TrackingPosition"
+      - tag: 3
+        name: total_count
+        type: int32
+
+rpcMethods:
+  GetLastPosition:
+    type: UNARY
+    summary: Obtenir la dernière position connue d'un colis
+    description: Appel synchrone standard (1 requête -> 1 réponse).
+    request: TrackParcelRequest
+    response: TrackingPosition
+    errorStatuses:
+      - NOT_FOUND: "Le parcel_id n'a aucune position enregistrée"
+
+  GetHistory:
+    type: UNARY
+    summary: Obtenir l'historique chronologique de suivi
+    request: GetHistoryRequest
+    response: GetHistoryResponse
+
+  RecordPosition:
+    type: UNARY
+    summary: Enregistrer un nouveau point de passage GPS
+    request: RecordPositionRequest
+    response: RecordPositionResponse
+
+  StreamPositions:
+    type: SERVER_STREAMING
+    summary: Suivre en direct le déplacement d'un colis (Temps Réel)
+    description: |
+      Server Streaming gRPC : le client envoie une requête unique et le serveur 
+      maintient le flux ouvert pour envoyer continuellement chaque nouvelle position.
+      Évite le polling HTTP/REST répétitif.
+    request: TrackParcelRequest
+    response: "stream TrackingPosition"
+    errorStatuses:
+      - NOT_FOUND: "Colis inconnu"
+      - INTERNAL: "Interruption inattendue du flux"
+
+cliUsage:
+  grpcurl: |
+    # Lister les services disponibles :
+    grpcurl -plaintext localhost:9090 list
+
+    # Appeler GetLastPosition :
+    grpcurl -plaintext -d '{"parcel_id": "PF-2026-00001"}' localhost:9090 tracking.TrackingService/GetLastPosition

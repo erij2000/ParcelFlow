@@ -1,0 +1,68 @@
+# ==============================================================================
+#  ParcelFlow - API Gateway Routing & Proxy Specification
+#  Responsable : Wiem Ghars
+#  Framework    : Spring Cloud Gateway (Spring WebFlux / Netty Réactif)
+# ==============================================================================
+
+gateway:
+  name: ApiGateway
+  version: "1.0.0-SNAPSHOT"
+  port: 8080
+  architecture: "Non-blocking Reactive Netty"
+  centralizedCors: true
+
+routes:
+  - id: order-service-route
+    summary: Routage vers le microservice de gestion des commandes (REST)
+    predicates:
+      - Path: "/api/orders/**"
+    filters:
+      - StripPrefix: 1
+      - AddRequestHeader: "X-Gateway-Source, parcelflow-gateway"
+    targetUri: "${ORDER_SERVICE_URL:http://order-service:8081}"
+    exampleTransformation:
+      incoming: "GET http://localhost:8080/api/orders/PF-2026-00001"
+      forwarded: "GET http://order-service:8081/orders/PF-2026-00001"
+
+  - id: carrier-service-route
+    summary: Routage vers le microservice transporteurs (SOAP / WSDL)
+    predicates:
+      - Path: "/api/carrier/**"
+    filters:
+      - StripPrefix: 1
+      - AddRequestHeader: "X-Gateway-Source, parcelflow-gateway"
+    targetUri: "${CARRIER_SERVICE_URL:http://carrier-service:8082}"
+    exampleTransformation:
+      incoming: "GET http://localhost:8080/api/carrier/ws/carrier.wsdl"
+      forwarded: "GET http://carrier-service:8082/ws/carrier.wsdl"
+
+  - id: tracking-service-route
+    summary: Routage vers le microservice de tracking (HTTP / Actuator)
+    predicates:
+      - Path: "/api/tracking/**"
+    filters:
+      - StripPrefix: 1
+      - AddRequestHeader: "X-Gateway-Source, parcelflow-gateway"
+    targetUri: "${TRACKING_SERVICE_URL:http://tracking-service:8083}"
+
+corsPolicy:
+  allowedOriginPatterns:
+    - "*"
+  allowedMethods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - PATCH
+    - OPTIONS
+  allowedHeaders:
+    - "*"
+  allowCredentials: true
+  maxAgeSeconds: 3600
+
+supervision:
+  actuatorEndpoints:
+    - "/actuator/health"
+    - "/actuator/info"
+    - "/actuator/gateway/routes"
+    - "/actuator/metrics"
