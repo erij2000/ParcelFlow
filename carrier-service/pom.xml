@@ -32,6 +32,16 @@
             <artifactId>wsdl4j</artifactId>
         </dependency>
 
+        <!-- JAXB version Jakarta (Spring Boot 3) : API + implementation -->
+        <dependency>
+            <groupId>jakarta.xml.bind</groupId>
+            <artifactId>jakarta.xml.bind-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.glassfish.jaxb</groupId>
+            <artifactId>jaxb-runtime</artifactId>
+        </dependency>
+
         <!-- JPA + PostgreSQL pour la persistance des transporteurs -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -70,26 +80,25 @@
                 C'est l'approche "Contract-First" exigée par le projet.
             -->
             <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>jaxb2-maven-plugin</artifactId>
-                <version>3.1.0</version>
+                <groupId>org.jvnet.jaxb</groupId>
+                <artifactId>jaxb-maven-plugin</artifactId>
+                <version>4.0.8</version>
                 <executions>
                     <execution>
                         <id>xjc</id>
                         <goals>
-                            <goal>xjc</goal>
+                            <goal>generate</goal>
                         </goals>
                     </execution>
                 </executions>
                 <configuration>
-                    <!-- Source XSD à partir duquel les classes sont générées -->
-                    <sources>
-                        <source>${project.basedir}/src/main/resources/wsdl/carrier.xsd</source>
-                    </sources>
-                    <!-- Package Java de destination des classes générées -->
-                    <packageName>com.parcelflow.carrier.generated</packageName>
-                    <outputDirectory>${project.build.directory}/generated-sources/jaxb</outputDirectory>
-                    <clearOutputDir>false</clearOutputDir>
+                    <!-- Contract-first : les classes Java sont generees depuis le XSD (jakarta.xml.bind) -->
+                    <schemaDirectory>${project.basedir}/src/main/resources/wsdl</schemaDirectory>
+                    <schemaIncludes>
+                        <include>carrier.xsd</include>
+                    </schemaIncludes>
+                    <generatePackage>com.parcelflow.carrier.generated</generatePackage>
+                    <generateDirectory>${project.build.directory}/generated-sources/xjc</generateDirectory>
                 </configuration>
             </plugin>
         </plugins>

@@ -12,7 +12,7 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5434/carrierdb}
     username: ${SPRING_DATASOURCE_USERNAME:carrier_user}
-    password: ${SPRING_DATASOURCE_PASSWORD:carrier_pass_dev}
+    password: ${SPRING_DATASOURCE_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
   jpa:

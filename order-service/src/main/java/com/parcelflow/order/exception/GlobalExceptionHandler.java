@@ -3,7 +3,9 @@ package com.parcelflow.order.exception;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -57,6 +59,18 @@ public class GlobalExceptionHandler {
         log.warn("Erreur de validation : {}", errors);
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, errors);
         problem.setTitle("Erreur de validation");
+        problem.setProperty("timestamp", Instant.now());
+        return problem;
+    }
+
+    /**
+     * Parametre ou corps de requete illisible (ex: statut inconnu, JSON invalide) -> 400 Bad Request
+     */
+    @ExceptionHandler({MethodArgumentTypeMismatchException.class, HttpMessageNotReadableException.class})
+    public ProblemDetail handleBadRequest(Exception ex) {
+        log.warn("Requete invalide : {}", ex.getMessage());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Parametre ou corps de requete invalide");
+        problem.setTitle("Requete invalide");
         problem.setProperty("timestamp", Instant.now());
         return problem;
     }

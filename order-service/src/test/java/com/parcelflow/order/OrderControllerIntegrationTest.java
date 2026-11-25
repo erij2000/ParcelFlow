@@ -62,7 +62,7 @@ class OrderControllerIntegrationTest {
                 .weightKg(new BigDecimal("2.500"))
                 .build();
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(post("/api/v1/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -79,7 +79,7 @@ class OrderControllerIntegrationTest {
                 {"recipientName": "Test", "weightKg": 1.0}
                 """;
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(post("/api/v1/orders")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(invalidJson))
                 .andExpect(status().isBadRequest());
@@ -88,7 +88,7 @@ class OrderControllerIntegrationTest {
     @Test
     @DisplayName("GET /orders/{id} inexistant → 404 Not Found")
     void shouldReturn404ForUnknownId() throws Exception {
-        mockMvc.perform(get("/orders/non-existent-id"))
+        mockMvc.perform(get("/api/v1/orders/non-existent-id"))
                 .andExpect(status().isNotFound());
     }
 
@@ -96,17 +96,17 @@ class OrderControllerIntegrationTest {
     @DisplayName("GET /orders → retourne la liste complète")
     void shouldReturnAllOrders() throws Exception {
         // Créer 2 commandes via le service
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(post("/api/v1/orders")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(validRequest("Sender1", "Recipient1"))))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(post("/api/v1/orders")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(validRequest("Sender2", "Recipient2"))))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/orders"))
+        mockMvc.perform(get("/api/v1/orders"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(2)));
     }

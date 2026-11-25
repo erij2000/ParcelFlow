@@ -12,7 +12,7 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5435/trackingdb}
     username: ${SPRING_DATASOURCE_USERNAME:tracking_user}
-    password: ${SPRING_DATASOURCE_PASSWORD:tracking_pass_dev}
+    password: ${SPRING_DATASOURCE_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
   jpa:

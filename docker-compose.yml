@@ -1,17 +1,12 @@
-version: "3.9"
-
 # =============================================================
 #  ParcelFlow – Docker Compose
-#  Auteur  : Wiem (Infrastructure & DevOps)
-#  Commande: docker compose up --build
+#  Commande : cp .env.example .env && docker compose up --build
 # =============================================================
 
-# Réseau interne partagé par tous les services
 networks:
   parcelflow-net:
     driver: bridge
 
-# Volumes nommés pour la persistance des données PostgreSQL
 volumes:
   order-db-data:
   carrier-db-data:
@@ -19,11 +14,7 @@ volumes:
 
 services:
 
-  # ============================================================
-  #  BASES DE DONNÉES – Une BDD isolée par microservice
-  #  → Principe de Database-per-Service (isolation totale)
-  # ============================================================
-
+  # ---------- Bases de donnees (une par microservice) ----------
   order-db:
     image: postgres:16-alpine
     container_name: parcelflow-order-db
@@ -33,11 +24,10 @@ services:
       POSTGRES_USER: ${ORDER_DB_USER}
       POSTGRES_PASSWORD: ${ORDER_DB_PASSWORD}
     ports:
-      - "5433:5432"      # Exposé sur 5433 pour éviter les conflits locaux
+      - "5433:5432"
     volumes:
       - order-db-data:/var/lib/postgresql/data
-    networks:
-      - parcelflow-net
+    networks: [parcelflow-net]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${ORDER_DB_USER} -d ${ORDER_DB_NAME}"]
       interval: 10s
@@ -56,8 +46,7 @@ services:
       - "5434:5432"
     volumes:
       - carrier-db-data:/var/lib/postgresql/data
-    networks:
-      - parcelflow-net
+    networks: [parcelflow-net]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${CARRIER_DB_USER} -d ${CARRIER_DB_NAME}"]
       interval: 10s
@@ -76,22 +65,19 @@ services:
       - "5435:5432"
     volumes:
       - tracking-db-data:/var/lib/postgresql/data
-    networks:
-      - parcelflow-net
+    networks: [parcelflow-net]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${TRACKING_DB_USER} -d ${TRACKING_DB_NAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ============================================================
-  #  MICROSERVICES APPLICATIFS
-  # ============================================================
-
+  # ---------- Microservices ----------
+  # Contexte = racine du depot : chaque service a besoin du pom parent.
   order-service:
     build:
-      context: ./order-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: order-service/Dockerfile
     container_name: parcelflow-order-service
     restart: unless-stopped
     env_file: .env
@@ -105,13 +91,18 @@ services:
     depends_on:
       order-db:
         condition: service_healthy
-    networks:
-      - parcelflow-net
+    networks: [parcelflow-net]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${ORDER_SERVICE_PORT}/actuator/health | grep -q UP"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
 
   carrier-service:
     build:
-      context: ./carrier-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: carrier-service/Dockerfile
     container_name: parcelflow-carrier-service
     restart: unless-stopped
     env_file: .env
@@ -125,13 +116,18 @@ services:
     depends_on:
       carrier-db:
         condition: service_healthy
-    networks:
-      - parcelflow-net
+    networks: [parcelflow-net]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${CARRIER_SERVICE_PORT}/actuator/health | grep -q UP"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
 
   tracking-service:
     build:
-      context: ./tracking-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: tracking-service/Dockerfile
     container_name: parcelflow-tracking-service
     restart: unless-stopped
     env_file: .env
@@ -147,16 +143,19 @@ services:
     depends_on:
       tracking-db:
         condition: service_healthy
-    networks:
-      - parcelflow-net
+    networks: [parcelflow-net]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${TRACKING_SERVICE_PORT}/actuator/health | grep -q UP"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
 
-  # ============================================================
-  #  API GATEWAY – Point d'entrée unique (Wiem)
-  # ============================================================
+  # ---------- API Gateway : seul point d'entree ----------
   api-gateway:
     build:
-      context: ./api-gateway
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: api-gateway/Dockerfile
     container_name: parcelflow-api-gateway
     restart: unless-stopped
     env_file: .env
@@ -168,8 +167,16 @@ services:
     ports:
       - "${GATEWAY_PORT}:${GATEWAY_PORT}"
     depends_on:
-      - order-service
-      - carrier-service
-      - tracking-service
-    networks:
-      - parcelflow-net
+      order-service:
+        condition: service_healthy
+      carrier-service:
+        condition: service_healthy
+      tracking-service:
+        condition: service_healthy
+    networks: [parcelflow-net]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:${GATEWAY_PORT}/actuator/health | grep -q UP"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s

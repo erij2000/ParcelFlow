@@ -9,10 +9,11 @@ spring:
   application:
     name: order-service
 
+
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/orderdb}
     username: ${SPRING_DATASOURCE_USERNAME:order_user}
-    password: ${SPRING_DATASOURCE_PASSWORD:order_pass_dev}
+    password: ${SPRING_DATASOURCE_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
       # Pool de connexions optimisé pour un microservice
@@ -21,6 +22,7 @@ spring:
       connection-timeout: 30000
 
   jpa:
+    defer-datasource-initialization: true
     hibernate:
       # validate : vérifie le schéma sans le modifier (prod)
       # update  : met à jour le schéma automatiquement (dev)
@@ -30,6 +32,9 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
+  sql: # <-- NEW block, same level as "jpa:"
+    init:
+      mode: always
 
 # SpringDoc / Swagger UI
 springdoc:

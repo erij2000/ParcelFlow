@@ -3,6 +3,7 @@ package com.parcelflow.order.repository;
 import com.parcelflow.order.model.Order;
 import com.parcelflow.order.model.OrderStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -27,4 +28,8 @@ public interface OrderRepository extends JpaRepository<Order, String> {
 
     /** Vérifie si une référence existe déjà (pour l'unicité) */
     boolean existsByTrackingReference(String trackingReference);
+
+    /** Prochain numéro de la séquence PostgreSQL (atomique, survit aux redémarrages) */
+    @Query(value = "select nextval('order_ref_seq')", nativeQuery = true)
+    long nextReferenceNumber();
 }

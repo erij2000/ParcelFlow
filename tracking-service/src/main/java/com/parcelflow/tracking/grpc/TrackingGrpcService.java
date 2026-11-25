@@ -1,154 +1,188 @@
 package com.parcelflow.tracking.grpc;
 
+import com.parcelflow.tracking.generated.GetHistoryRequest;
+import com.parcelflow.tracking.generated.GetHistoryResponse;
+import com.parcelflow.tracking.generated.RecordPositionRequest;
+import com.parcelflow.tracking.generated.RecordPositionResponse;
+import com.parcelflow.tracking.generated.TrackParcelRequest;
+import com.parcelflow.tracking.generated.TrackingServiceGrpc;
 import com.parcelflow.tracking.model.TrackingPosition;
 import com.parcelflow.tracking.repository.TrackingPositionRepository;
 import io.grpc.Status;
+import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.devh.boot.grpc.server.service.GrpcService;
 
+import java.time.ZoneId;
 import java.util.List;
-import java.util.UUID;
 
 /**
- * Implémentation du service gRPC TrackingService.
+ * Implementation reelle du service gRPC TrackingService (contrat : tracking.proto).
  *
- * <p>@GrpcService : détecte cette classe comme endpoint gRPC et l'enregistre
- * automatiquement sur le serveur gRPC (port 9090 par défaut).
+ * <p>La classe etend {@code TrackingServiceGrpc.TrackingServiceImplBase}, generee par protoc,
+ * ce qui la rend enregistrable par {@code @GrpcService} sur le serveur gRPC (port 9090).
  *
- * <p>Cette classe étend TrackingServiceGrpc.TrackingServiceImplBase,
- * la classe abstraite générée par protoc depuis tracking.proto.
+ * <p>Attention : l'entite JPA {@link TrackingPosition} et le message protobuf
+ * {@code com.parcelflow.tracking.generated.TrackingPosition} ont le meme nom.
+ * Le message protobuf est donc toujours ecrit avec son nom complet dans ce fichier.
  *
- * <p>IMPORTANT : Les classes TrackingServiceGrpc, TrackParcelRequest, etc.
- * sont générées par le plugin Maven lors de "mvn compile".
- * Pour Sprint 1, on utilise des stubs qui documentent ce comportement.
- *
- * @author Erij
+ * <p>Statuts gRPC utilises : INVALID_ARGUMENT (donnees invalides), NOT_FOUND (colis inconnu).
  */
 @GrpcService
 @RequiredArgsConstructor
 @Slf4j
-public class TrackingGrpcService {
-    // NOTE : En build réel, cette classe étendrait :
-    // TrackingServiceGrpc.TrackingServiceImplBase
-    // Les méthodes ci-dessous sont les implementations réelles.
+public class TrackingGrpcService extends TrackingServiceGrpc.TrackingServiceImplBase {
+
+    /** Pause entre deux positions du flux, pour que le streaming soit visible en demo. */
+    private static final long STREAM_DELAY_MS = 500;
 
     private final TrackingPositionRepository repository;
 
-    // ── APPEL UNAIRE : GetLastPosition ────────────────────────────────────
-
-    /**
-     * Retourne la dernière position connue d'un colis.
-     *
-     * <p>Flux gRPC UNAIRE :
-     * <pre>
-     *   Client → [TrackParcelRequest] → Serveur
-     *   Client ← [TrackingPosition]   ← Serveur
-     * </pre>
-     *
-     * @param request  La requête contenant le parcel_id
-     * @param observer Le canal de réponse gRPC (on appelle onNext puis onCompleted)
-     */
-    public void getLastPosition(Object request, StreamObserver<Object> observer) {
-        String parcelId = "DEMO-PARCEL"; // En vrai : request.getParcelId()
+    // ── UNAIRE : GetLastPosition ─────────────────────────────────────────
+    @Override
+    public void getLastPosition(TrackParcelRequest request,
+                                StreamObserver<com.parcelflow.tracking.generated.TrackingPosition> observer) {
+        String parcelId = request.getParcelId();
+        if (isBlank(parcelId)) {
+            fail(observer, Status.INVALID_ARGUMENT, "parcel_id est obligatoire");
+            return;
+        }
         log.info("gRPC GetLastPosition pour : {}", parcelId);
 
-        repository.findTopByParcelIdOrderByRecordedAtDesc(parcelId)
-                .ifPresentOrElse(
-                        position -> {
-                            // Convertir l'entité JPA en message Protobuf
-                            // En vrai : TrackingPosition.newBuilder()...build()
-                            log.info("Position trouvée : {}", position.getCity());
-                            observer.onNext(position); // Envoyer la réponse
-                            observer.onCompleted();    // Terminer le stream
-                        },
-                        () -> {
-                            // Pas de position → erreur gRPC NOT_FOUND
-                            observer.onError(Status.NOT_FOUND
-                                    .withDescription("Aucune position pour : " + parcelId)
-                                    .asRuntimeException());
-                        }
-                );
+        repository.findTopByParcelIdOrderByRecordedAtDesc(parcelId).ifPresentOrElse(
+                position -> {
+                    observer.onNext(toProto(position));
+                    observer.onCompleted();
+                },
+                () -> fail(observer, Status.NOT_FOUND, "Aucune position pour : " + parcelId));
     }
 
-    // ── STREAMING SERVEUR : StreamPositions ──────────────────────────────
-
-    /**
-     * Envoie un flux continu de positions GPS au client.
-     *
-     * <p>Flux gRPC STREAMING SERVEUR :
-     * <pre>
-     *   Client → [TrackParcelRequest] → Serveur
-     *   Client ← [TrackingPosition]   ← Serveur (position 1)
-     *   Client ← [TrackingPosition]   ← Serveur (position 2)
-     *   Client ← [TrackingPosition]   ← Serveur (position 3)
-     *   ...
-     *   Client ←       [onCompleted]  ← Serveur
-     * </pre>
-     *
-     * <p>Cas d'usage : Le client (dashboard) s'abonne et reçoit
-     * chaque mise à jour GPS en temps réel sans polling HTTP.
-     *
-     * @param request  La requête contenant le parcel_id à suivre
-     * @param observer Le canal de réponse gRPC (stream)
-     */
-    public void streamPositions(Object request, StreamObserver<Object> observer) {
-        String parcelId = "DEMO-PARCEL"; // En vrai : request.getParcelId()
-        log.info("gRPC StreamPositions démarré pour : {}", parcelId);
-
-        List<TrackingPosition> positions =
-                repository.findByParcelIdOrderByRecordedAtAsc(parcelId);
-
-        if (positions.isEmpty()) {
-            observer.onError(Status.NOT_FOUND
-                    .withDescription("Aucun historique pour : " + parcelId)
-                    .asRuntimeException());
+    // ── UNAIRE : GetHistory ──────────────────────────────────────────────
+    @Override
+    public void getHistory(GetHistoryRequest request, StreamObserver<GetHistoryResponse> observer) {
+        String parcelId = request.getParcelId();
+        if (isBlank(parcelId)) {
+            fail(observer, Status.INVALID_ARGUMENT, "parcel_id est obligatoire");
+            return;
+        }
+        if (request.getLimit() < 0) {
+            fail(observer, Status.INVALID_ARGUMENT, "limit ne peut pas etre negatif");
             return;
         }
 
-        // Envoyer chaque position dans le stream
-        for (TrackingPosition pos : positions) {
+        List<TrackingPosition> positions = repository.findByParcelIdOrderByRecordedAtAsc(parcelId);
+        if (positions.isEmpty()) {
+            fail(observer, Status.NOT_FOUND, "Aucun historique pour : " + parcelId);
+            return;
+        }
+
+        // limit = 0 -> tout l'historique ; sinon les N positions les plus recentes
+        int limit = request.getLimit();
+        if (limit > 0 && limit < positions.size()) {
+            positions = positions.subList(positions.size() - limit, positions.size());
+        }
+
+        observer.onNext(GetHistoryResponse.newBuilder()
+                .setParcelId(parcelId)
+                .addAllPositions(positions.stream().map(TrackingGrpcService::toProto).toList())
+                .setTotalCount(positions.size())
+                .build());
+        observer.onCompleted();
+    }
+
+    // ── UNAIRE : RecordPosition ──────────────────────────────────────────
+    @Override
+    public void recordPosition(RecordPositionRequest request, StreamObserver<RecordPositionResponse> observer) {
+        if (isBlank(request.getParcelId()) || isBlank(request.getCity()) || isBlank(request.getStatus())) {
+            fail(observer, Status.INVALID_ARGUMENT, "parcel_id, city et status sont obligatoires");
+            return;
+        }
+        if (request.getLatitude() < -90 || request.getLatitude() > 90
+                || request.getLongitude() < -180 || request.getLongitude() > 180) {
+            fail(observer, Status.INVALID_ARGUMENT,
+                    "Coordonnees hors limites (latitude -90..90, longitude -180..180)");
+            return;
+        }
+
+        TrackingPosition saved = repository.save(TrackingPosition.builder()
+                .parcelId(request.getParcelId())
+                .latitude(request.getLatitude())
+                .longitude(request.getLongitude())
+                .city(request.getCity())
+                .status(request.getStatus())
+                .description(request.getDescription())
+                .build());
+        log.info("Position enregistree : {} pour le colis {}", saved.getId(), saved.getParcelId());
+
+        observer.onNext(RecordPositionResponse.newBuilder()
+                .setSuccess(true)
+                .setMessage("Position enregistree")
+                .setEventId(saved.getId() == null ? "" : saved.getId())
+                .build());
+        observer.onCompleted();
+    }
+
+    // ── STREAMING SERVEUR : StreamPositions ──────────────────────────────
+    @Override
+    public void streamPositions(TrackParcelRequest request,
+                                StreamObserver<com.parcelflow.tracking.generated.TrackingPosition> observer) {
+        String parcelId = request.getParcelId();
+        if (isBlank(parcelId)) {
+            fail(observer, Status.INVALID_ARGUMENT, "parcel_id est obligatoire");
+            return;
+        }
+        log.info("gRPC StreamPositions demarre pour : {}", parcelId);
+
+        List<TrackingPosition> positions = repository.findByParcelIdOrderByRecordedAtAsc(parcelId);
+        if (positions.isEmpty()) {
+            fail(observer, Status.NOT_FOUND, "Aucun historique pour : " + parcelId);
+            return;
+        }
+
+        for (TrackingPosition position : positions) {
+            // Le client a annule le flux (Ctrl+C, deadline...) : on arrete d'envoyer
+            if (observer instanceof ServerCallStreamObserver<?> call && call.isCancelled()) {
+                log.info("StreamPositions annule par le client pour : {}", parcelId);
+                return;
+            }
+            observer.onNext(toProto(position));
             try {
-                // En vrai : on convertit en message Protobuf TrackingPosition
-                observer.onNext(pos);
-                Thread.sleep(100); // Simulation d'un délai entre positions
+                Thread.sleep(STREAM_DELAY_MS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                observer.onError(Status.INTERNAL
-                        .withDescription("Stream interrompu")
-                        .asRuntimeException());
+                fail(observer, Status.CANCELLED, "Flux interrompu");
                 return;
             }
         }
-
         observer.onCompleted();
-        log.info("gRPC StreamPositions terminé pour : {} ({} positions)", parcelId, positions.size());
+        log.info("gRPC StreamPositions termine pour : {} ({} positions)", parcelId, positions.size());
     }
 
-    // ── APPEL UNAIRE : RecordPosition ─────────────────────────────────────
+    // ── Utilitaires ──────────────────────────────────────────────────────
 
-    /**
-     * Enregistre une nouvelle position GPS en base de données.
-     * Appelé par les livreurs ou le système de tracking.
-     */
-    public void recordPosition(Object request, StreamObserver<Object> observer) {
-        log.info("gRPC RecordPosition reçu");
-
-        // En vrai : extraire les données de la requête Protobuf
-        TrackingPosition position = TrackingPosition.builder()
-                .parcelId("DEMO-PARCEL")
-                .latitude(36.8065)   // Tunis par défaut pour la démo
-                .longitude(10.1815)
-                .city("Tunis")
-                .status("IN_TRANSIT")
-                .description("Colis en cours de traitement")
+    /** Entite JPA -> message protobuf. */
+    private static com.parcelflow.tracking.generated.TrackingPosition toProto(TrackingPosition entity) {
+        long timestamp = entity.getRecordedAt() == null
+                ? 0L
+                : entity.getRecordedAt().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        return com.parcelflow.tracking.generated.TrackingPosition.newBuilder()
+                .setParcelId(entity.getParcelId())
+                .setLatitude(entity.getLatitude())
+                .setLongitude(entity.getLongitude())
+                .setCity(entity.getCity())
+                .setStatus(entity.getStatus())
+                .setTimestamp(timestamp)
+                .setDescription(entity.getDescription() == null ? "" : entity.getDescription())
                 .build();
+    }
 
-        TrackingPosition saved = repository.save(position);
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
 
-        // En vrai : renvoyer un RecordPositionResponse Protobuf
-        log.info("Position enregistrée : {}", saved.getId());
-        observer.onCompleted();
+    private static void fail(StreamObserver<?> observer, Status status, String message) {
+        observer.onError(status.withDescription(message).asRuntimeException());
     }
 }

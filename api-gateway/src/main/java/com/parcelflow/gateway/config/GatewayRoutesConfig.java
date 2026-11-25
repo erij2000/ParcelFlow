@@ -45,9 +45,9 @@ public class GatewayRoutesConfig {
                 // ── Route : Order Service ──────────────────────────────────
                 // Toutes les requêtes /api/orders/** sont redirigées vers order-service
                 .route("order-service", r -> r
-                        .path("/api/orders/**")
+                        .path("/api/v1/orders/**")
                         .filters(f -> f
-                                .stripPrefix(1)                          // supprime /api
+                                        
                                 .addRequestHeader("X-Gateway-Source", "parcelflow-gateway")
                                 // Circuit Breaker activé Sprint 2 :
                                 // .circuitBreaker(c -> c.setName("orderCB").setFallbackUri("forward:/fallback/orders"))

@@ -1,0 +1,10 @@
+{
+  "senderName": "Ahmed",
+  "senderAddress": "12 rue de la Liberte",
+  "senderCity": "Sousse",
+  "recipientName": "Marie",
+  "recipientAddress": "5 avenue du Prado",
+  "recipientCity": "Marseille",
+  "weightKg": 2.5,
+  "declaredValue": 100
+}

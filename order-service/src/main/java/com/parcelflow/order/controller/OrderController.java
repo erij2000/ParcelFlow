@@ -31,7 +31,7 @@ import java.util.List;
  * @author Yessine
  */
 @RestController
-@RequestMapping("/orders")
+@RequestMapping("/api/v1/orders")
 @RequiredArgsConstructor
 @Tag(name = "Orders", description = "API de gestion des commandes de livraison ParcelFlow")
 public class OrderController {

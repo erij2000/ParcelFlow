@@ -14,7 +14,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -22,7 +21,6 @@ import java.util.stream.Collectors;
  *
  * <p>Ce service contient toute la logique applicative.
  * Le contrôleur REST ne fait que déléguer ici.
- * Cette séparation des responsabilités (SoC) est un critère évalué.
  *
  * <p>En Sprint 2, ce service deviendra l'orchestrateur :
  * il appellera le Carrier Service via SOAP pour assigner un transporteur,
@@ -31,24 +29,14 @@ import java.util.stream.Collectors;
  * @author Yessine
  */
 @Service
-@RequiredArgsConstructor // Lombok injecte automatiquement via le constructeur
-@Slf4j                   // Génère un logger SLF4J : log.info(...), log.error(...)
+@RequiredArgsConstructor
+@Slf4j
 public class OrderService {
 
     private final OrderRepository orderRepository;
 
-    // Compteur simple pour générer des références uniques
-    // En production, on utiliserait une séquence de BDD
-    private final AtomicInteger refCounter = new AtomicInteger(1);
-
     // ── CRUD Operations ──────────────────────────────────────────────────
 
-    /**
-     * Crée une nouvelle commande et génère sa référence de suivi.
-     *
-     * @param request Les données de la nouvelle commande
-     * @return La commande créée (DTO de réponse)
-     */
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
         log.info("Création d'une nouvelle commande pour : {}", request.getRecipientName());
@@ -74,11 +62,6 @@ public class OrderService {
         return toResponse(saved);
     }
 
-    /**
-     * Récupère une commande par son ID.
-     *
-     * @throws OrderNotFoundException si l'ID n'existe pas
-     */
     @Transactional(readOnly = true)
     public OrderResponse getOrderById(String id) {
         log.debug("Recherche de la commande : {}", id);
@@ -87,9 +70,6 @@ public class OrderService {
         return toResponse(order);
     }
 
-    /**
-     * Récupère une commande par sa référence de suivi publique.
-     */
     @Transactional(readOnly = true)
     public OrderResponse getOrderByTrackingReference(String ref) {
         Order order = orderRepository.findByTrackingReference(ref)
@@ -97,9 +77,6 @@ public class OrderService {
         return toResponse(order);
     }
 
-    /**
-     * Retourne toutes les commandes (paginable en Sprint 2).
-     */
     @Transactional(readOnly = true)
     public List<OrderResponse> getAllOrders() {
         return orderRepository.findAll()
@@ -108,9 +85,6 @@ public class OrderService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Met à jour le statut d'une commande.
-     */
     @Transactional
     public OrderResponse updateOrderStatus(String id, OrderStatus newStatus) {
         Order order = orderRepository.findById(id)
@@ -121,9 +95,6 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
-    /**
-     * Supprime une commande (soft delete possible en Sprint 2).
-     */
     @Transactional
     public void deleteOrder(String id) {
         if (!orderRepository.existsById(id)) {
@@ -137,18 +108,15 @@ public class OrderService {
 
     /**
      * Génère une référence de suivi au format : PF-YYYY-NNNNN
+     * Le numéro vient d'une séquence PostgreSQL (atomique, survit aux redémarrages).
      * Exemple : PF-2026-00042
      */
     private String generateTrackingReference() {
         String year = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy"));
-        int seq = refCounter.getAndIncrement();
+        long seq = orderRepository.nextReferenceNumber();
         return String.format("PF-%s-%05d", year, seq);
     }
 
-    /**
-     * Convertit une entité Order en DTO OrderResponse.
-     * En Sprint 2, on utilisera MapStruct pour cette conversion.
-     */
     private OrderResponse toResponse(Order order) {
         return OrderResponse.builder()
                 .id(order.getId())
