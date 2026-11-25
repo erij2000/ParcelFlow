@@ -36,6 +36,27 @@ spring:
     init:
       mode: always
 
+  # Fix: spring-boot-starter-web-services auto-registers a MessageDispatcherServlet
+  # at "/*" which hijacks all REST routes. We redirect it to a dead path so that
+  # Spring MVC DispatcherServlet handles /api/** normally.
+  webservices:
+    path: /soap-client-disabled
+carrier:
+  soap:
+    url: ${CARRIER_SOAP_URL:http://localhost:8082/ws}
+    connect-timeout-ms: ${CARRIER_SOAP_CONNECT_TIMEOUT_MS:2000}
+    read-timeout-ms: ${CARRIER_SOAP_READ_TIMEOUT_MS:3000}
+
+grpc:
+  client:
+    tracking-service:
+      address: ${TRACKING_GRPC_ADDRESS:static://localhost:9090}
+      negotiation-type: plaintext
+
+tracking:
+  grpc:
+    deadline-ms: ${TRACKING_GRPC_DEADLINE_MS:2000}
+
 # SpringDoc / Swagger UI
 springdoc:
   api-docs:

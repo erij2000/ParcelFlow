@@ -1,8 +1,14 @@
 package com.parcelflow.order.service;
 
+import com.parcelflow.order.client.carrier.CarrierSoapClient;
+import com.parcelflow.order.client.tracking.TrackingGrpcClient;
 import com.parcelflow.order.dto.CreateOrderRequest;
 import com.parcelflow.order.dto.OrderResponse;
+import com.parcelflow.order.dto.PositionUpdateRequest;
+import com.parcelflow.order.dto.TrackingPositionResponse;
+import com.parcelflow.order.exception.InvalidOrderStateException;
 import com.parcelflow.order.exception.OrderNotFoundException;
+import com.parcelflow.order.exception.RemoteServiceUnavailableException;
 import com.parcelflow.order.model.Order;
 import com.parcelflow.order.model.OrderStatus;
 import com.parcelflow.order.repository.OrderRepository;
@@ -17,14 +23,15 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Service métier du Order Service.
+ * Service metier du Order Service : il ORCHESTRE les deux autres microservices.
  *
- * <p>Ce service contient toute la logique applicative.
- * Le contrôleur REST ne fait que déléguer ici.
+ * <ul>
+ *   <li>carrier-service (SOAP) : tarif a la creation (GetPrice), reservation a la confirmation (BookCarrier)</li>
+ *   <li>tracking-service (gRPC) : demarrage et lecture du suivi (RecordPosition, GetLastPosition, GetHistory)</li>
+ * </ul>
  *
- * <p>En Sprint 2, ce service deviendra l'orchestrateur :
- * il appellera le Carrier Service via SOAP pour assigner un transporteur,
- * puis notifiera le Tracking Service via gRPC.
+ * <p>Les methodes qui font des appels reseau ne sont PAS @Transactional :
+ * on ne garde pas une connexion a la base ouverte pendant qu'on attend un autre service.
  *
  * @author Yessine
  */
@@ -33,18 +40,28 @@ import java.util.stream.Collectors;
 @Slf4j
 public class OrderService {
 
+    /** Type de transport demande au transporteur (valeurs du XSD : STANDARD, EXPRESS, OVERNIGHT). */
+    private static final String DEFAULT_CARRIER_TYPE = "STANDARD";
+
     private final OrderRepository orderRepository;
+    private final CarrierSoapClient carrierClient;
+    private final TrackingGrpcClient trackingClient;
 
-    // ── CRUD Operations ──────────────────────────────────────────────────
+    // ── Creation : appel SOAP GetPrice ──────────────────────────────────
 
-    @Transactional
+    /**
+     * Cree une commande. Le tarif est demande AVANT la sauvegarde : si le transporteur
+     * refuse (SOAP Fault) ou est injoignable, rien n'est enregistre.
+     */
     public OrderResponse createOrder(CreateOrderRequest request) {
-        log.info("Création d'une nouvelle commande pour : {}", request.getRecipientName());
+        log.info("Creation d'une nouvelle commande pour : {}", request.getRecipientName());
 
-        String trackingRef = generateTrackingReference();
+        CarrierSoapClient.PriceQuote quote = carrierClient.getPrice(
+                request.getSenderCity(), request.getRecipientCity(),
+                request.getWeightKg(), DEFAULT_CARRIER_TYPE);
 
         Order order = Order.builder()
-                .trackingReference(trackingRef)
+                .trackingReference(generateTrackingReference())
                 .status(OrderStatus.PENDING)
                 .senderName(request.getSenderName())
                 .senderAddress(request.getSenderAddress())
@@ -54,26 +71,104 @@ public class OrderService {
                 .recipientCity(request.getRecipientCity())
                 .weightKg(request.getWeightKg())
                 .declaredValue(request.getDeclaredValue())
+                .shippingPrice(quote.price())
+                .estimatedDays(quote.estimatedDays())
                 .build();
 
         Order saved = orderRepository.save(order);
-        log.info("Commande créée avec succès : {}", saved.getId());
-
+        log.info("Commande creee : {} (tarif {} {})", saved.getId(), quote.price(), quote.currency());
         return toResponse(saved);
     }
+
+    // ── Confirmation : appel SOAP BookCarrier puis appel gRPC RecordPosition ─
+
+    /**
+     * Confirme une commande PENDING : reserve le transporteur (SOAP) puis demarre
+     * le suivi (gRPC). La commande passe a ASSIGNED_TO_CARRIER.
+     *
+     * @throws InvalidOrderStateException si la commande n'est pas PENDING
+     */
+    public OrderResponse confirmOrder(String id) {
+        Order order = findOrder(id);
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new InvalidOrderStateException(
+                    "Seule une commande PENDING peut etre confirmee (statut actuel : " + order.getStatus() + ")");
+        }
+
+        // 1) SOAP : reservation chez le transporteur (un SOAP Fault arrete tout ici)
+        CarrierSoapClient.Booking booking = carrierClient.bookCarrier(
+                order.getId(), order.getSenderCity(), order.getRecipientCity(),
+                order.getWeightKg(), DEFAULT_CARRIER_TYPE);
+
+        order.setCarrierId(booking.carrierId());
+        order.setCarrierBookingId(booking.bookingId());
+        order.setShippingPrice(booking.totalPrice());
+        order.setStatus(OrderStatus.ASSIGNED_TO_CARRIER);
+        Order saved = orderRepository.save(order);
+
+        // 2) gRPC : premiere position du colis. Le suivi n'est pas vital pour confirmer :
+        //    s'il est indisponible, la commande reste confirmee et on journalise l'incident.
+        try {
+            double[] start = CityCoordinates.of(order.getSenderCity());
+            trackingClient.recordPosition(order.getTrackingReference(), start[0], start[1],
+                    order.getSenderCity(), OrderStatus.ASSIGNED_TO_CARRIER.name(),
+                    "Commande confirmee, transporteur assigne");
+        } catch (RemoteServiceUnavailableException ex) {
+            log.warn("Suivi non initialise pour {} : {}", order.getTrackingReference(), ex.getMessage());
+        }
+
+        log.info("Commande {} confirmee (reservation {})", saved.getId(), booking.bookingId());
+        return toResponse(saved);
+    }
+
+    // ── Suivi : appels gRPC ─────────────────────────────────────────────
+
+    /** Derniere position du colis (gRPC GetLastPosition). */
+    public TrackingPositionResponse getLastPosition(String id) {
+        return trackingClient.getLastPosition(findOrder(id).getTrackingReference());
+    }
+
+    /** Historique des positions du colis (gRPC GetHistory). limit = 0 : tout l'historique. */
+    public List<TrackingPositionResponse> getPositionHistory(String id, int limit) {
+        return trackingClient.getHistory(findOrder(id).getTrackingReference(), limit);
+    }
+
+    /**
+     * Enregistre une nouvelle position (gRPC RecordPosition) et fait evoluer le statut
+     * de la commande : IN_TRANSIT ou DELIVERED selon la position recue.
+     */
+    public OrderResponse recordTrackingPosition(String id, PositionUpdateRequest request) {
+        Order order = findOrder(id);
+        if (order.getStatus() != OrderStatus.ASSIGNED_TO_CARRIER && order.getStatus() != OrderStatus.IN_TRANSIT) {
+            throw new InvalidOrderStateException(
+                    "Le suivi n'accepte des positions que pour une commande ASSIGNED_TO_CARRIER ou IN_TRANSIT (statut actuel : "
+                            + order.getStatus() + ")");
+        }
+
+        trackingClient.recordPosition(order.getTrackingReference(), request.latitude(), request.longitude(),
+                request.city(), request.status(), request.description());
+
+        OrderStatus next = OrderStatus.valueOf(request.status());
+        if (order.getStatus() != next) {
+            log.info("Statut de {} : {} -> {}", order.getId(), order.getStatus(), next);
+            order.setStatus(next);
+            order = orderRepository.save(order);
+        }
+        return toResponse(order);
+    }
+
+    // ── CRUD ────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public OrderResponse getOrderById(String id) {
         log.debug("Recherche de la commande : {}", id);
-        Order order = orderRepository.findById(id)
-                .orElseThrow(() -> new OrderNotFoundException("Commande non trouvée : " + id));
-        return toResponse(order);
+        return toResponse(findOrder(id));
     }
 
     @Transactional(readOnly = true)
     public OrderResponse getOrderByTrackingReference(String ref) {
         Order order = orderRepository.findByTrackingReference(ref)
-                .orElseThrow(() -> new OrderNotFoundException("Référence de suivi introuvable : " + ref));
+                .orElseThrow(() -> new OrderNotFoundException("Reference de suivi introuvable : " + ref));
         return toResponse(order);
     }
 
@@ -87,10 +182,8 @@ public class OrderService {
 
     @Transactional
     public OrderResponse updateOrderStatus(String id, OrderStatus newStatus) {
-        Order order = orderRepository.findById(id)
-                .orElseThrow(() -> new OrderNotFoundException("Commande non trouvée : " + id));
-
-        log.info("Mise à jour du statut de {} : {} → {}", id, order.getStatus(), newStatus);
+        Order order = findOrder(id);
+        log.info("Mise a jour du statut de {} : {} -> {}", id, order.getStatus(), newStatus);
         order.setStatus(newStatus);
         return toResponse(orderRepository.save(order));
     }
@@ -98,18 +191,22 @@ public class OrderService {
     @Transactional
     public void deleteOrder(String id) {
         if (!orderRepository.existsById(id)) {
-            throw new OrderNotFoundException("Commande non trouvée : " + id);
+            throw new OrderNotFoundException("Commande non trouvee : " + id);
         }
         orderRepository.deleteById(id);
-        log.info("Commande supprimée : {}", id);
+        log.info("Commande supprimee : {}", id);
     }
 
-    // ── Méthodes privées ─────────────────────────────────────────────────
+    // ── Methodes privees ────────────────────────────────────────────────
+
+    private Order findOrder(String id) {
+        return orderRepository.findById(id)
+                .orElseThrow(() -> new OrderNotFoundException("Commande non trouvee : " + id));
+    }
 
     /**
-     * Génère une référence de suivi au format : PF-YYYY-NNNNN
-     * Le numéro vient d'une séquence PostgreSQL (atomique, survit aux redémarrages).
-     * Exemple : PF-2026-00042
+     * Reference de suivi : PF-YYYY-NNNNN, numero issu de la sequence PostgreSQL order_ref_seq
+     * (atomique, survit aux redemarrages).
      */
     private String generateTrackingReference() {
         String year = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy"));
@@ -127,7 +224,10 @@ public class OrderService {
                 .recipientName(order.getRecipientName())
                 .recipientCity(order.getRecipientCity())
                 .weightKg(order.getWeightKg())
+                .shippingPrice(order.getShippingPrice())
+                .estimatedDays(order.getEstimatedDays())
                 .carrierId(order.getCarrierId())
+                .carrierBookingId(order.getCarrierBookingId())
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())
                 .build();

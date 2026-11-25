@@ -49,8 +49,17 @@ public class OrderResponse {
     @Schema(description = "Poids en kg")
     private BigDecimal weightKg;
 
+    @Schema(description = "Tarif de livraison en euros (obtenu par SOAP GetPrice)")
+    private BigDecimal shippingPrice;
+
+    @Schema(description = "Délai de livraison estimé en jours")
+    private Integer estimatedDays;
+
     @Schema(description = "ID du transporteur assigné (null si non encore assigné)")
     private String carrierId;
+
+    @Schema(description = "ID de la réservation chez le transporteur (obtenu par SOAP BookCarrier)")
+    private String carrierBookingId;
 
     @Schema(description = "Date et heure de création")
     private LocalDateTime createdAt;

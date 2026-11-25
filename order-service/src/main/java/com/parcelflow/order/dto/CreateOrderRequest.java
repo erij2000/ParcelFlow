@@ -55,7 +55,6 @@ public class CreateOrderRequest {
     // ── Colis ─────────────────────────────────────────────────────
     @NotNull
     @Positive(message = "Le poids doit être positif")
-    @DecimalMax(value = "1000.000", message = "Poids maximum : 1000 kg")
     @Schema(description = "Poids du colis en kilogrammes", example = "2.5")
     private BigDecimal weightKg;
 

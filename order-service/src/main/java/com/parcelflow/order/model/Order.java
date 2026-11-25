@@ -72,9 +72,21 @@ public class Order {
     @Column(name = "declared_value", precision = 10, scale = 2)
     private BigDecimal declaredValue;
 
-    /** ID du transporteur assigné (rempli lors du Sprint 2 – appel SOAP Carrier) */
+    /** ID du transporteur assigné (rempli à la confirmation – appel SOAP BookCarrier) */
     @Column(name = "carrier_id")
     private String carrierId;
+
+    /** Identifiant de la réservation chez le transporteur (réponse SOAP BookCarrier) */
+    @Column(name = "carrier_booking_id")
+    private String carrierBookingId;
+
+    /** Tarif de livraison en euros (réponse SOAP GetPrice, confirmé par BookCarrier) */
+    @Column(name = "shipping_price", precision = 10, scale = 2)
+    private BigDecimal shippingPrice;
+
+    /** Délai de livraison estimé en jours (réponse SOAP GetPrice) */
+    @Column(name = "estimated_days")
+    private Integer estimatedDays;
 
     // ── Méta-données ─────────────────────────────────────────────
     @CreationTimestamp

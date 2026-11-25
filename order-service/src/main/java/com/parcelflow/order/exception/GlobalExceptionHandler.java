@@ -76,6 +76,58 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * SOAP Fault du carrier-service (refus metier) -> 422 Unprocessable Entity
+     */
+    @ExceptionHandler(CarrierFaultException.class)
+    public ProblemDetail handleCarrierFault(CarrierFaultException ex) {
+        log.warn("SOAP Fault du carrier-service : {} - {}", ex.getFaultCode(), ex.getMessage());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+        problem.setTitle("Refus du transporteur (SOAP Fault)");
+        problem.setProperty("faultCode", ex.getFaultCode());
+        problem.setProperty("timestamp", Instant.now());
+        return problem;
+    }
+
+    /**
+     * Microservice injoignable ou trop lent (timeout SOAP, deadline gRPC) -> 503 Service Unavailable
+     */
+    @ExceptionHandler(RemoteServiceUnavailableException.class)
+    public ProblemDetail handleRemoteUnavailable(RemoteServiceUnavailableException ex) {
+        log.error("Service distant indisponible : {} ({})", ex.getService(),
+                ex.getCause() == null ? "?" : ex.getCause().getMessage());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+                "Le service " + ex.getService() + " est indisponible. Reessayez plus tard.");
+        problem.setTitle("Service indisponible");
+        problem.setProperty("service", ex.getService());
+        problem.setProperty("timestamp", Instant.now());
+        return problem;
+    }
+
+    /**
+     * Operation impossible dans l'etat actuel de la commande -> 409 Conflict
+     */
+    @ExceptionHandler(InvalidOrderStateException.class)
+    public ProblemDetail handleInvalidState(InvalidOrderStateException ex) {
+        log.warn("Etat de commande invalide : {}", ex.getMessage());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        problem.setTitle("Operation impossible dans cet etat");
+        problem.setProperty("timestamp", Instant.now());
+        return problem;
+    }
+
+    /**
+     * Donnees refusees par le tracking-service (gRPC INVALID_ARGUMENT) -> 400 Bad Request
+     */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ProblemDetail handleIllegalArgument(IllegalArgumentException ex) {
+        log.warn("Argument invalide : {}", ex.getMessage());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        problem.setTitle("Requete invalide");
+        problem.setProperty("timestamp", Instant.now());
+        return problem;
+    }
+
+    /**
      * Catch-all – erreurs inattendues → 500 Internal Server Error
      */
     @ExceptionHandler(Exception.class)

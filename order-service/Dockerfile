@@ -11,6 +11,9 @@ COPY order-service/pom.xml order-service/
 COPY carrier-service/pom.xml carrier-service/
 COPY tracking-service/pom.xml tracking-service/
 COPY order-service/src order-service/src
+# JAXB plugin reads carrier XSD; protobuf plugin reads tracking .proto
+COPY carrier-service/src/main/resources carrier-service/src/main/resources
+COPY tracking-service/src/main/proto tracking-service/src/main/proto
 RUN mvn -q -pl order-service -am package -DskipTests
 
 # Stage 2 – image d'execution legere (JRE seulement)

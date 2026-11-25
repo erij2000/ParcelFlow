@@ -1,5 +1,11 @@
 package com.parcelflow.carrier.ws;
 
+import com.parcelflow.carrier.generated.BookCarrierRequest;
+import com.parcelflow.carrier.generated.BookCarrierResponse;
+import com.parcelflow.carrier.generated.CarrierInfo;
+import com.parcelflow.carrier.generated.CarrierType;
+import com.parcelflow.carrier.generated.GetPriceRequest;
+import com.parcelflow.carrier.generated.GetPriceResponse;
 import com.parcelflow.carrier.service.PricingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -8,155 +14,127 @@ import org.springframework.ws.server.endpoint.annotation.PayloadRoot;
 import org.springframework.ws.server.endpoint.annotation.RequestPayload;
 import org.springframework.ws.server.endpoint.annotation.ResponsePayload;
 
+import javax.xml.datatype.DatatypeConfigurationException;
 import javax.xml.datatype.DatatypeFactory;
+import javax.xml.datatype.XMLGregorianCalendar;
 import java.math.BigDecimal;
 import java.time.ZonedDateTime;
 import java.util.GregorianCalendar;
 import java.util.UUID;
 
 /**
- * Endpoint SOAP du Carrier Service.
+ * Endpoint SOAP du Carrier Service (contract-first).
  *
- * <p>@Endpoint : indique à Spring-WS que cette classe traite les messages SOAP.
- * @PayloadRoot : lie chaque méthode à l'élément XML correspondant dans le WSDL.
+ * <p>Les classes GetPriceRequest, GetPriceResponse, BookCarrierRequest, etc. sont
+ * GENEREES depuis carrier.xsd par le plugin jaxb-maven-plugin (package
+ * com.parcelflow.carrier.generated) : le contrat XSD est la source de verite,
+ * le code Java en derive.
  *
- * <p>IMPORTANT : Les classes GetPriceRequest, BookCarrierRequest, etc. sont
- * générées automatiquement par JAXB2 à partir du carrier.xsd lors du build Maven.
- * Elles seront dans le package com.parcelflow.carrier.generated.
- *
- * <p>Pour le Sprint 1 (démonstration), on utilise des classes de stub
- * qui simulent les classes générées. En build réel, remplacer les imports.
- *
- * @author Malek
+ * <p>Erreurs metier : on leve {@link CarrierSoapFaultException}, que Spring-WS
+ * transforme en SOAP Fault.
  */
 @Endpoint
 @RequiredArgsConstructor
 @Slf4j
 public class CarrierEndpoint {
 
-    /** Namespace doit correspondre exactement au targetNamespace du XSD */
     private static final String NAMESPACE_URI = "http://parcelflow.com/carrier";
+
+    /** Meme limite que la facette maxInclusive du XSD (weightKg). */
+    static final BigDecimal MAX_WEIGHT_KG = new BigDecimal("1000");
 
     private final PricingService pricingService;
 
-    // ── OPÉRATION 1 : GetPrice ────────────────────────────────────────────
-
-    /**
-     * Calcule et retourne le tarif pour un envoi donné.
-     *
-     * <p>L'annotation @PayloadRoot indique à Spring-WS que cette méthode
-     * doit être invoquée quand l'élément XML racine du payload SOAP est
-     * "GetPriceRequest" dans le namespace "http://parcelflow.com/carrier".
-     */
+    // ── Operation 1 : GetPrice ──────────────────────────────────────────
     @PayloadRoot(namespace = NAMESPACE_URI, localPart = "GetPriceRequest")
     @ResponsePayload
-    public GetPriceResponseStub getPrice(@RequestPayload GetPriceRequestStub request) {
-        log.info("SOAP GetPrice : {} → {} | {}kg | {}",
+    public GetPriceResponse getPrice(@RequestPayload GetPriceRequest request) {
+        log.info("SOAP GetPrice : {} -> {} | {}kg | {}",
                 request.getOriginCity(), request.getDestinationCity(),
                 request.getWeightKg(), request.getCarrierType());
 
-        validateGetPriceRequest(request);
+        validateShipment(request.getOriginCity(), request.getDestinationCity(), request.getWeightKg());
+        String carrierType = carrierTypeOf(request.getCarrierType());
 
         BigDecimal price = pricingService.calculatePrice(
-                request.getOriginCity(),
-                request.getDestinationCity(),
-                request.getWeightKg(),
-                request.getCarrierType()
-        );
-        int days = pricingService.getEstimatedDays(request.getCarrierType());
+                request.getOriginCity(), request.getDestinationCity(),
+                request.getWeightKg(), carrierType);
 
-        GetPriceResponseStub response = new GetPriceResponseStub();
+        CarrierInfo info = new CarrierInfo();
+        info.setCarrierId("CARRIER-001");
+        info.setCarrierName("ParcelFlow Logistics");
+        info.setCarrierType(request.getCarrierType());
+        info.setAvailable(true);
+
+        GetPriceResponse response = new GetPriceResponse();
         response.setPrice(price);
         response.setCurrency("EUR");
-        response.setEstimatedDays(days);
-        response.setCarrierName("ParcelFlow Logistics");
-
+        response.setEstimatedDays(pricingService.getEstimatedDays(carrierType));
+        response.setCarrierInfo(info);
         return response;
     }
 
-    // ── OPÉRATION 2 : BookCarrier ─────────────────────────────────────────
-
-    /**
-     * Réserve un transporteur pour une commande.
-     *
-     * <p>En Sprint 2, cette méthode persistera la réservation en base
-     * et enverra un événement Kafka (messagerie asynchrone).
-     */
+    // ── Operation 2 : BookCarrier ───────────────────────────────────────
     @PayloadRoot(namespace = NAMESPACE_URI, localPart = "BookCarrierRequest")
     @ResponsePayload
-    public BookCarrierResponseStub bookCarrier(@RequestPayload BookCarrierRequestStub request) {
-        log.info("SOAP BookCarrier : commande={} | {} → {}",
+    public BookCarrierResponse bookCarrier(@RequestPayload BookCarrierRequest request) {
+        log.info("SOAP BookCarrier : commande={} | {} -> {}",
                 request.getOrderId(), request.getOriginCity(), request.getDestinationCity());
 
         if (request.getOrderId() == null || request.getOrderId().isBlank()) {
             throw new CarrierSoapFaultException("MISSING_ORDER_ID",
                     "L'identifiant de commande est obligatoire");
         }
+        validateShipment(request.getOriginCity(), request.getDestinationCity(), request.getWeightKg());
+        String carrierType = carrierTypeOf(request.getCarrierType());
 
         BigDecimal price = pricingService.calculatePrice(
-                request.getOriginCity(),
-                request.getDestinationCity(),
-                request.getWeightKg(),
-                request.getCarrierType()
-        );
+                request.getOriginCity(), request.getDestinationCity(),
+                request.getWeightKg(), carrierType);
 
-        BookCarrierResponseStub response = new BookCarrierResponseStub();
+        BookCarrierResponse response = new BookCarrierResponse();
         response.setBookingId(UUID.randomUUID().toString());
         response.setCarrierId("CARRIER-001");
-        response.setCarrierName("ParcelFlow Express");
+        response.setCarrierName("ParcelFlow Logistics");
         response.setTotalPrice(price);
+        response.setEstimatedPickup(tomorrowMorning());
         response.setStatus("CONFIRMED");
-
         return response;
     }
 
-    // ── Validation ────────────────────────────────────────────────────────
-
-    private void validateGetPriceRequest(GetPriceRequestStub request) {
-        if (request.getWeightKg() == null || request.getWeightKg().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new CarrierSoapFaultException("INVALID_WEIGHT",
-                    "Le poids doit être strictement positif");
+    // ── Regles metier : chaque violation devient un SOAP Fault ───────────
+    private void validateShipment(String originCity, String destinationCity, BigDecimal weightKg) {
+        if (originCity == null || originCity.isBlank()) {
+            throw new CarrierSoapFaultException("MISSING_ORIGIN", "La ville d'origine est obligatoire");
         }
-        if (request.getOriginCity() == null || request.getOriginCity().isBlank()) {
-            throw new CarrierSoapFaultException("MISSING_ORIGIN",
-                    "La ville d'origine est obligatoire");
+        if (destinationCity == null || destinationCity.isBlank()) {
+            throw new CarrierSoapFaultException("MISSING_DESTINATION", "La ville de destination est obligatoire");
+        }
+        if (weightKg == null || weightKg.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new CarrierSoapFaultException("INVALID_WEIGHT", "Le poids doit etre strictement positif");
+        }
+        if (weightKg.compareTo(MAX_WEIGHT_KG) > 0) {
+            throw new CarrierSoapFaultException("WEIGHT_LIMIT_EXCEEDED",
+                    "Poids maximum accepte : " + MAX_WEIGHT_KG + " kg");
         }
     }
 
-    // ── Stubs internes (remplacés par les classes JAXB2 au build Maven) ──
-    // Ces stubs permettent à l'IDE de compiler même sans le build Maven.
-
-    @lombok.Data
-    public static class GetPriceRequestStub {
-        private String originCity;
-        private String destinationCity;
-        private BigDecimal weightKg;
-        private String carrierType;
+    private String carrierTypeOf(CarrierType type) {
+        if (type == null) {
+            throw new CarrierSoapFaultException("MISSING_CARRIER_TYPE",
+                    "Le type de transport est obligatoire (STANDARD, EXPRESS ou OVERNIGHT)");
+        }
+        return type.value();
     }
 
-    @lombok.Data
-    public static class GetPriceResponseStub {
-        private BigDecimal price;
-        private String currency;
-        private int estimatedDays;
-        private String carrierName;
-    }
-
-    @lombok.Data
-    public static class BookCarrierRequestStub {
-        private String orderId;
-        private String originCity;
-        private String destinationCity;
-        private BigDecimal weightKg;
-        private String carrierType;
-    }
-
-    @lombok.Data
-    public static class BookCarrierResponseStub {
-        private String bookingId;
-        private String carrierId;
-        private String carrierName;
-        private BigDecimal totalPrice;
-        private String status;
+    /** Date de ramassage estimee : demain 09h00 (champ xs:dateTime du contrat). */
+    private XMLGregorianCalendar tomorrowMorning() {
+        try {
+            GregorianCalendar calendar = GregorianCalendar.from(
+                    ZonedDateTime.now().plusDays(1).withHour(9).withMinute(0).withSecond(0).withNano(0));
+            return DatatypeFactory.newInstance().newXMLGregorianCalendar(calendar);
+        } catch (DatatypeConfigurationException e) {
+            throw new IllegalStateException("Impossible de creer la date de ramassage", e);
+        }
     }
 }
